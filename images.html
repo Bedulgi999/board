@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>이미지 업로드 및 관리</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet" />
+  <style>
+    .admin-image-wrapper {
+      position: relative;
+      display: inline-block;
+      margin: 5px;
+    }
+    .delete-btn {
+      position: absolute;
+      top: 2px;
+      right: 2px;
+      background: rgba(255, 0, 0, 0.7);
+      color: white;
+      border: none;
+      border-radius: 50%;
+      width: 24px;
+      height: 24px;
+      font-weight: bold;
+      cursor: pointer;
+      line-height: 18px;
+      padding: 0;
+    }
+  </style>
+</head>
+<body class="container py-4">
+  <h1>이미지 업로드 및 관리</h1>
+  <div id="current-user-email" class="mb-3 text-muted"></div>
+  <button id="logout-btn" class="btn btn-secondary mb-4 d-none" onclick="logOut()">로그아웃</button>
+
+  <input type="file" id="image-upload" class="form-control mb-2" accept="image/*" />
+  <button class="btn btn-primary mb-4" onclick="uploadImage()">업로드</button>
+
+  <div id="image-list"></div>
+
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/9.6.1/firebase-app.js";
+    import { getAuth, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/9.6.1/firebase-auth.js";
+    import { getFirestore, collection, addDoc, getDocs, query, orderBy, deleteDoc, doc, getDoc } from "https://www.gstatic.com/firebasejs/9.6.1/firebase-firestore.js";
+    import { getStorage, ref, uploadBytesResumable, getDownloadURL, deleteObject } from "https://www.gstatic.com/firebasejs/9.6.1/firebase-storage.js";
+
+    const firebaseConfig = {
+      apiKey: "AIzaSyC1spNFnTnxRio9jfmJY6uuIXP3T_PrjIA",
+      authDomain: "project-3530121166088789122.firebaseapp.com",
+      projectId: "project-3530121166088789122",
+      storageBucket: "project-3530121166088789122.firebasestorage.app",
+      messagingSenderId: "1054087041587",
+      appId: "1:1054087041587:web:663ec31408992d5a25c946"
+    };
+
+    const app = initializeApp(firebaseConfig);
+    const auth = getAuth(app);
+    const db = getFirestore(app);
+    const storage = getStorage(app);
+
+    let currentUser = null;
+    let isAdmin = false;
+
+    async function checkAdmin(email) {
+      if (!email) return false;
+      const docRef = doc(db, "admins", email);
+      const docSnap = await getDoc(docRef);
+      return docSnap.exists();
+    }
+
+    onAuthStateChanged(auth, async (user) => {
+      currentUser = user;
+      const userEmailDiv = document.getElementById("current-user-email");
+      const logoutBtn = document.getElementById("logout-btn");
+
+      if (user) {
+        userEmailDiv.textContent = `로그인: ${user.email}`;
+        logoutBtn.classList.remove("d-none");
+        isAdmin = await checkAdmin(user.email);
+        if (isAdmin) {
+          loadAllImages();
+        }
+      } else {
+        userEmailDiv.textContent = "";
+        logoutBtn.classList.add("d-none");
+      }
+    });
+
+    async function uploadImage() {
+      if (!currentUser) {
+        alert("로그인이 필요합니다.");
+        return;
+      }
+      const fileInput = document.getElementById("image-upload");
+      if (fileInput.files.length === 0) {
+        alert("이미지를 선택하세요.");
+        return;
+      }
+      const file = fileInput.files[0];
+      const storageRef = ref(storage, "images/" + Date.now() + "_" + file.name);
+
+      try {
+        const uploadTask = uploadBytesResumable(storageRef, file);
+
+        uploadTask.on(
+          "state_changed",
+          null,
+          (error) => {
+            alert("업로드 실패: " + error.message);
+          },
+          async () => {
+            const downloadURL = await getDownloadURL(uploadTask.snapshot.ref);
+            await addDoc(collection(db, "images"), {
+              url: downloadURL,
+              createdAt: new Date(),
+              uploadedBy: currentUser.email,
+              storagePath: uploadTask.snapshot.ref.fullPath
+            });
+            alert("업로드 성공");
+            fileInput.value = "";
+            loadAllImages();
+          }
+        );
+      } catch (e) {
+        alert("업로드 오류: " + e.message);
+      }
+    }
+
+    async function loadAllImages() {
+      if (!isAdmin) return;
+      const imageList = document.getElementById("image-list");
+      imageList.innerHTML = "";
+      try {
+        const q = query(collection(db, "images"), orderBy("createdAt", "desc"));
+        const querySnapshot = await getDocs(q);
+        querySnapshot.forEach((docSnap) => {
+          const image = docSnap.data();
+          const imageId = docSnap.id;
+          const div = document.createElement("div");
+          div.className = "admin-image-wrapper";
+          div.innerHTML = `
+            <img src="${image.url}" alt="이미지" style="max-width:150px; max-height:150px; border-radius: 8px;" />
+            <button class="delete-btn" onclick="deleteImage('${imageId}', '${image.storagePath}')">&times;</button>
+          `;
+          imageList.appendChild(div);
+        });
+      } catch (e) {
+        console.error(e);
+      }
+    }
+
+    window.deleteImage = async function (imageId, storagePath) {
+      if (!isAdmin) {
+        alert("관리자만 삭제할 수 있습니다.");
+        return;
+      }
+      if (!confirm("정말 이미지를 삭제하시겠습니까?")) return;
+
+      try {
+        await deleteDoc(doc(db, "images", imageId));
+        const imageRef = ref(storage, storagePath);
+        await deleteObject(imageRef);
+        alert("이미지 삭제 완료");
+        loadAllImages();
+      } catch (e) {
+        alert("삭제 실패: " + e.message);
+      }
+    };
+
+    async function logOut() {
+      await signOut(auth);
+    }
+
+    window.uploadImage = uploadImage;
+    window.logOut = logOut;
+  </script>
+</body>
+</html>
