@@ -45,7 +45,7 @@
         alert("어드민 로그인 성공!");
         localStorage.setItem("adminLogin", "true");
         localStorage.setItem("userId", "admin");
-        window.location.href = "index.html";
+        window.location.href = "title.html";
         return;
       }
 
@@ -66,7 +66,7 @@
 
         localStorage.setItem("userId", userId); // 로그인 아이디 저장
         alert("로그인 성공!");
-        window.location.href = "index.html";
+        window.location.href = "title.html";
       } catch (error) {
         console.error("로그인 오류:", error);
         alert("로그인 실패: " + error.message);
